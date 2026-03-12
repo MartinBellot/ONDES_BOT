@@ -606,7 +606,9 @@ TOOL_GROUPS = {
     "calendar": {
         "tools": {"calendar_get_events", "calendar_create_event", "calendar_find_free_slots", "calendar_get_week_summary"},
         "keywords": re.compile(
-            r"calendrier|calendar|rdv|rendez.?vous|événement|event|créneau|planning|agenda|semaine|demain|aujourd",
+            r"calendrier|calendar|rdv|rendez.?vous|événement|event|créneau|planning|agenda"
+            r"|semaine|demain|aujourd|ce\s*soir|ce\s*matin|cet\s*après.?midi|à\s*\d{1,2}[h:]"
+            r"|pour\s*\d{1,2}[h:]|\d{1,2}h\d{0,2}|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche",
             re.IGNORECASE,
         ),
     },
@@ -707,8 +709,18 @@ class ToolRegistry:
             if group["keywords"].search(message):
                 needed |= group["tools"]
 
-        # No tools matched = pure conversation, send nothing
-        if not needed:
+        if needed:
+            return [t for t in TOOL_DEFINITIONS if t["name"] in needed]
+
+        # No keyword matched — check if it looks like pure conversation
+        # Short casual messages (greetings, simple questions) don't need tools
+        casual = re.compile(
+            r"^(salut|hello|hi|hey|bonjour|bonsoir|coucou|ça va|comment vas|merci|ok|oui|non|"
+            r"d'accord|super|cool|bye|au revoir|bonne nuit|quoi de neuf|yo)\b",
+            re.IGNORECASE,
+        )
+        if casual.match(message.strip()) and len(message.strip()) < 60:
             return []
 
-        return [t for t in TOOL_DEFINITIONS if t["name"] in needed]
+        # Ambiguous message — send all tools so Claude can decide
+        return TOOL_DEFINITIONS
