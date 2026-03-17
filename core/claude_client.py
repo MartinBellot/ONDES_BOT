@@ -22,7 +22,7 @@ class ClaudeClient:
         for attempt in range(MAX_RETRIES + 1):
             try:
                 return func()
-            except (anthropic.OverloadedError, anthropic.RateLimitError, anthropic.APIStatusError) as e:
+            except Exception as e:
                 if isinstance(e, anthropic.APIStatusError) and e.status_code not in (429, 529, 503):
                     raise
                 if attempt == MAX_RETRIES:
