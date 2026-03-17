@@ -1115,7 +1115,10 @@ TOOL_GROUPS = {
         },
         "keywords": re.compile(
             r"planifi|schedule|cron|autom|récurrent|briefing|matin.*résumé|résumé.*matin"
-            r"|toutes?\s*les\s*\d|chaque\s*(jour|heure|minute|semaine|lundi|mardi)",
+            r"|toutes?\s*les\s*\d|chaque\s*(jour|heure|minute|semaine|lundi|mardi)"
+            r"|pr[ée]viens|rappel|remind|timer|minuterie|alarm|réveill"
+            r"|dans\s*\d+\s*(mn|min|m|h|sec|s|d|minute|heure|seconde|jour)"
+            r"|in\s*\d+\s*(min|hour|sec|day)",
             re.IGNORECASE,
         ),
     },

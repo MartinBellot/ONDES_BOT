@@ -51,9 +51,10 @@ class AutomationManager:
             """)
 
     def start(self):
-        """Start the scheduler."""
+        """Start the scheduler and reload persisted jobs."""
         if not self.scheduler.running:
             self.scheduler.start()
+        self._reload_jobs()
 
     def stop(self):
         """Stop the scheduler."""
@@ -182,6 +183,8 @@ class AutomationManager:
 
         remind_at: ISO 8601 datetime or relative like "in 30m", "in 2h", "in 1d"
         """
+        import sqlite3
+
         run_time = self._parse_reminder_time(remind_at)
         if run_time is None:
             return f"❌ Format de temps invalide: '{remind_at}'. Exemples: 'in 30m', 'in 2h', '2025-12-25T10:00:00'"
@@ -204,6 +207,13 @@ class AutomationManager:
             "action": "reminder",
         }
 
+        # Persist to DB so reminder survives restart
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO scheduled_jobs (id, name, schedule, action, action_args, enabled) VALUES (?, ?, ?, ?, ?, 1)",
+                (job_id, f"Rappel: {message[:50]}", run_time.isoformat(), "reminder", json.dumps({"message": message})),
+            )
+
         return (
             f"⏰ Rappel planifié: **{message}**\n"
             f"   {run_time.strftime('%d/%m/%Y à %H:%M')}"
@@ -213,10 +223,14 @@ class AutomationManager:
 
     def setup_morning_briefing(self, time: str = "08:00") -> str:
         """Schedule a daily morning briefing."""
+        import sqlite3
+
         parts = time.split(":")
         hour, minute = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
 
         job_id = "morning_briefing"
+        schedule = f"every day at {time}"
+
         self.scheduler.add_job(
             self._morning_briefing_trigger,
             trigger=CronTrigger(hour=hour, minute=minute),
@@ -226,9 +240,16 @@ class AutomationManager:
 
         self._custom_jobs[job_id] = {
             "name": "Morning Briefing",
-            "schedule": f"every day at {time}",
+            "schedule": schedule,
             "action": "morning_briefing",
         }
+
+        # Persist to DB
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO scheduled_jobs (id, name, schedule, action, action_args, enabled) VALUES (?, ?, ?, ?, ?, 1)",
+                (job_id, "Morning Briefing", schedule, "morning_briefing", "{}"),
+            )
 
         return f"☀️ Morning briefing planifié chaque jour à **{time}**."
 
@@ -257,9 +278,27 @@ class AutomationManager:
 
     def _send_reminder(self, message: str):
         """Send a macOS notification for a reminder."""
+        import sqlite3
+
         if self._notify:
             self._notify("⏰ ONDES Rappel", message)
         self._results[f"reminder_{message[:20]}"] = f"Rappel envoyé: {message}"
+
+        # Clean up fired reminder from DB
+        # Find the job_id for this reminder in _custom_jobs
+        fired_id = None
+        for jid, meta in list(self._custom_jobs.items()):
+            if meta.get("action") == "reminder" and jid.startswith("reminder_"):
+                args = meta.get("action_args", {})
+                # Match by checking if this job has already fired (no longer in scheduler)
+                if not self.scheduler.get_job(jid):
+                    fired_id = jid
+                    break
+
+        if fired_id:
+            self._custom_jobs.pop(fired_id, None)
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("DELETE FROM scheduled_jobs WHERE id = ?", (fired_id,))
 
     def _morning_briefing_trigger(self):
         """Trigger for morning briefing — stores flag for chat to pick up."""
@@ -273,6 +312,101 @@ class AutomationManager:
             self._results["morning_briefing"] = "DELIVERED"
             return True
         return False
+
+    def _reload_jobs(self):
+        """Reload persisted jobs from SQLite on startup."""
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, name, schedule, action, action_args, enabled FROM scheduled_jobs WHERE enabled = 1"
+            ).fetchall()
+
+        reloaded = 0
+        expired = []
+
+        for row in rows:
+            job_id = row["id"]
+            name = row["name"]
+            schedule = row["schedule"]
+            action = row["action"]
+            action_args = json.loads(row["action_args"] or "{}")
+
+            # Skip if already in scheduler (shouldn't happen, but safe)
+            if self.scheduler.get_job(job_id):
+                continue
+
+            if action == "reminder":
+                # schedule contains the ISO datetime for the reminder
+                try:
+                    run_time = datetime.fromisoformat(schedule)
+                except ValueError:
+                    expired.append(job_id)
+                    continue
+
+                if run_time <= datetime.now():
+                    # Reminder expired while bot was off — notify and clean up
+                    expired.append(job_id)
+                    message = action_args.get("message", name)
+                    if self._notify:
+                        self._notify("⏰ ONDES Rappel (retardé)", message)
+                    continue
+
+                self.scheduler.add_job(
+                    self._send_reminder,
+                    trigger=DateTrigger(run_date=run_time),
+                    id=job_id,
+                    args=[action_args.get("message", name)],
+                )
+                self._custom_jobs[job_id] = {
+                    "name": name,
+                    "schedule": f"once at {run_time.strftime('%d/%m %H:%M')}",
+                    "action": "reminder",
+                }
+            elif action == "morning_briefing":
+                trigger = self._parse_schedule(schedule)
+                if trigger:
+                    self.scheduler.add_job(
+                        self._morning_briefing_trigger,
+                        trigger=trigger,
+                        id=job_id,
+                        replace_existing=True,
+                    )
+                    self._custom_jobs[job_id] = {
+                        "name": name,
+                        "schedule": schedule,
+                        "action": action,
+                    }
+                    reloaded += 1
+            else:
+                # Recurring job
+                trigger = self._parse_schedule(schedule)
+                if trigger is None:
+                    continue
+
+                self.scheduler.add_job(
+                    self._execute_job,
+                    trigger=trigger,
+                    id=job_id,
+                    args=[job_id, action, action_args],
+                    replace_existing=True,
+                )
+                self._custom_jobs[job_id] = {
+                    "name": name,
+                    "schedule": schedule,
+                    "action": action,
+                    "action_args": action_args,
+                }
+                reloaded += 1
+
+        # Clean up expired reminders from DB
+        if expired:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.executemany(
+                    "DELETE FROM scheduled_jobs WHERE id = ?",
+                    [(jid,) for jid in expired],
+                )
 
     def _parse_schedule(self, schedule: str):
         """Parse a human-friendly schedule string into an APScheduler trigger."""
