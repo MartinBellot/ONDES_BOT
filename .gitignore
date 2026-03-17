@@ -1,6 +1,6 @@
 .env
 data/credentials/
-data/nietz.db
+data/ONDES.db
 __pycache__/
 *.pyc
 .pytest_cache/

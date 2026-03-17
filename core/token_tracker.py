@@ -17,6 +17,12 @@ PRICING = {
         "cache_write_per_mtok": 3.75,
         "cache_read_per_mtok": 0.30,
     },
+    "claude-haiku-3-5": {
+        "input_per_mtok": 0.80,
+        "output_per_mtok": 4.00,
+        "cache_write_per_mtok": 1.00,
+        "cache_read_per_mtok": 0.08,
+    },
 }
 
 
@@ -156,3 +162,31 @@ class TokenTracker:
         elif pct >= 75:
             return f"⚠️ 75% du budget atteint ({stats['cost_usd']:.2f}$ / {self.monthly_budget}$)"
         return None
+
+    def session_breakdown(self) -> dict:
+        """Detailed breakdown of token usage by context label for this session."""
+        breakdown: dict[str, dict] = {}
+        for u in self.session_usage:
+            ctx = u.context or "unknown"
+            if ctx not in breakdown:
+                breakdown[ctx] = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "cost": 0.0, "calls": 0}
+            breakdown[ctx]["input"] += u.input_tokens
+            breakdown[ctx]["output"] += u.output_tokens
+            breakdown[ctx]["cache_read"] += u.cache_read_tokens
+            breakdown[ctx]["cache_write"] += u.cache_write_tokens
+            breakdown[ctx]["cost"] += u.cost_usd
+            breakdown[ctx]["calls"] += 1
+        return breakdown
+
+    @property
+    def session_cache_stats(self) -> dict:
+        """Show how much prompt caching is saving."""
+        total_cache_read = sum(u.cache_read_tokens for u in self.session_usage)
+        total_cache_write = sum(u.cache_write_tokens for u in self.session_usage)
+        total_input = sum(u.input_tokens for u in self.session_usage)
+        cache_hit_rate = (total_cache_read / max(total_input + total_cache_read, 1)) * 100
+        return {
+            "cache_read_tokens": total_cache_read,
+            "cache_write_tokens": total_cache_write,
+            "cache_hit_rate_pct": round(cache_hit_rate, 1),
+        }

@@ -1,15 +1,12 @@
-"""Interactive Gmail setup wizard with Rich UI."""
+"""Interactive Gmail setup wizard with Rich UI — IMAP + App Password."""
 
 import json
-import shutil
 from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
-CREDENTIALS_PATH = Path("data/credentials/google_oauth.json")
-TOKEN_PATH = Path("data/credentials/gmail_token.json")
 CONFIG_PATH = Path("data/gmail_config.json")
 
 
@@ -19,112 +16,41 @@ def load_gmail_config() -> dict | None:
         return None
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        if data.get("email") and CREDENTIALS_PATH.exists():
+        if data.get("email") and data.get("app_password"):
             return data
     except (json.JSONDecodeError, KeyError):
         pass
     return None
 
 
-def save_gmail_config(email: str, credentials_path: str, token_path: str) -> None:
+def save_gmail_config(email: str, app_password: str) -> None:
     """Save Gmail config to JSON file."""
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(
-        json.dumps(
-            {
-                "email": email,
-                "credentials_path": credentials_path,
-                "token_path": token_path,
-            },
-            indent=2,
-        ),
+        json.dumps({"email": email, "app_password": app_password}, indent=2),
         encoding="utf-8",
     )
 
 
 def delete_gmail_config() -> None:
-    """Remove saved Gmail config and tokens."""
-    for p in (CONFIG_PATH, TOKEN_PATH):
-        if p.exists():
-            p.unlink()
-
-
-def _guide_credentials_download(console: Console) -> bool:
-    """Guide the user through downloading OAuth credentials. Returns True if successful."""
-    console.print()
-    console.print(
-        Panel(
-            "[bold yellow]Étape 1 · Créer les identifiants OAuth Google[/]\n\n"
-            "1. Va sur [bold link=https://console.cloud.google.com]console.cloud.google.com[/]\n\n"
-            "2. [bold]Crée un projet[/] (ou utilise un projet existant)\n"
-            "   → Menu hamburger ☰ → « Nouveau projet »\n\n"
-            "3. [bold]Active l'API Gmail[/]\n"
-            "   → APIs & Services → Bibliothèque\n"
-            "   → Cherche « Gmail API » → clique sur [bold]Activer[/]\n\n"
-            "4. [bold]Configure l'écran de consentement OAuth[/]\n"
-            "   → APIs & Services → Écran de consentement OAuth\n"
-            "   → Type : [bold]Externe[/] → Remplis le nom de l'app\n"
-            "   → Ajoute [bold]ton email comme utilisateur test[/]\n\n"
-            "5. [bold]Crée des identifiants OAuth[/]\n"
-            "   → APIs & Services → Identifiants\n"
-            "   → [bold]+ Créer des identifiants[/] → [bold]ID client OAuth[/]\n"
-            "   → Type d'application : [bold]Application de bureau[/]\n"
-            "   → Clique [bold]Créer[/] puis [bold]Télécharger le JSON[/] (bouton ⬇)\n\n"
-            "[dim]Le fichier téléchargé s'appelle client_secret_xxx...xxx.json[/]",
-            border_style="yellow",
-            padding=(1, 3),
-            title="[bold]Google Cloud Console[/]",
-            title_align="left",
-        )
-    )
-
-    while True:
-        file_path = Prompt.ask(
-            "\n  [bold]Chemin vers le fichier JSON téléchargé[/]\n"
-            "  [dim](glisse le fichier dans le terminal, ou tape le chemin)[/]"
-        ).strip().strip("'\"")
-
-        if not file_path:
-            if Confirm.ask("  Annuler la configuration ?", default=False):
-                return False
-            continue
-
-        source = Path(file_path).expanduser().resolve()
-        if not source.exists():
-            console.print(f"  [red]✗ Fichier introuvable : {source}[/]")
-            continue
-
-        # Validate it's a proper OAuth JSON
-        try:
-            data = json.loads(source.read_text(encoding="utf-8"))
-            if "installed" not in data and "web" not in data:
-                console.print("  [red]✗ Ce fichier ne ressemble pas à des identifiants OAuth Google.[/]")
-                console.print("  [dim]  Le JSON doit contenir une clé « installed » ou « web ».[/]")
-                continue
-        except (json.JSONDecodeError, OSError):
-            console.print("  [red]✗ Fichier JSON invalide.[/]")
-            continue
-
-        # Copy to the expected location
-        CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(source), str(CREDENTIALS_PATH))
-        console.print(f"  [green]✓ Identifiants copiés dans [bold]{CREDENTIALS_PATH}[/][/]")
-        return True
+    """Remove saved Gmail config."""
+    if CONFIG_PATH.exists():
+        CONFIG_PATH.unlink()
 
 
 def run_setup_wizard(console: Console) -> dict | None:
     """
-    Interactive Gmail setup wizard.
-    Returns config dict {"email", "credentials_path", "token_path"} or None if skipped.
+    Interactive Gmail setup — just email + app password.
+    Returns config dict {"email", "app_password"} or None if skipped.
     """
     console.print()
     console.print(
         Panel(
             "[bold cyan]📧  Configuration Gmail[/]\n\n"
-            "NIETZ peut lire tes emails, chercher, rédiger des brouillons\n"
+            "ONDES peut lire tes emails, chercher, rédiger des brouillons\n"
             "et analyser ta boîte de réception.\n\n"
-            "[dim]L'accès se fait via OAuth2 — tes identifiants ne sont jamais stockés.\n"
-            "La config est sauvegardée dans data/gmail_config.json[/]",
+            "[dim]Connexion via IMAP avec un mot de passe d'application Google.\n"
+            "Ton mot de passe principal n'est jamais utilisé.[/]",
             border_style="cyan",
             padding=(1, 3),
         )
@@ -134,79 +60,62 @@ def run_setup_wizard(console: Console) -> dict | None:
         console.print("[dim]  → Gmail ignoré. Tu pourras le configurer plus tard avec [bold]/gmail_setup[/][/]\n")
         return None
 
-    # ── Step 1: Get OAuth credentials file ──
-    if CREDENTIALS_PATH.exists():
-        console.print(f"\n  [green]✓[/] Fichier OAuth déjà présent : [bold]{CREDENTIALS_PATH}[/]")
-        if not Confirm.ask("  Utiliser ce fichier ?", default=True):
-            if not _guide_credentials_download(console):
-                return None
-    else:
-        if not _guide_credentials_download(console):
-            return None
-
-    if not CREDENTIALS_PATH.exists():
-        console.print("\n  [red]✗ Fichier OAuth introuvable.[/]")
-        console.print("  [dim]Tu peux réessayer avec /gmail_setup[/]\n")
-        return None
-
-    # ── Step 2: Run OAuth flow ──
+    # ── Guide: create an App Password ──
     console.print()
     console.print(
         Panel(
-            "[bold yellow]Étape 2 · Autorisation OAuth[/]\n\n"
-            "Ton navigateur va s'ouvrir pour autoriser NIETZ BOT\n"
-            "à accéder à ta boîte Gmail.\n\n"
-            "[bold]Permissions demandées :[/]\n"
-            "  • [dim]gmail.readonly[/]   → Lire tes emails\n"
-            "  • [dim]gmail.compose[/]    → Créer des brouillons\n"
-            "  • [dim]gmail.labels[/]     → Gérer les labels\n\n"
-            "[dim]Aucun email ne sera envoyé sans ta confirmation explicite.[/]",
+            "[bold yellow]Étape 1 · Créer un mot de passe d'application[/]\n\n"
+            "1. Va sur [bold link=https://myaccount.google.com/apppasswords]myaccount.google.com/apppasswords[/]\n"
+            "   [dim](la vérification en 2 étapes doit être activée)[/]\n\n"
+            "2. Donne un nom à l'app (ex: « ONDES Bot »)\n\n"
+            "3. Clique [bold]Créer[/] → copie le mot de passe de 16 caractères\n\n"
+            "[dim]Ce mot de passe ne donne accès qu'aux emails,\n"
+            "pas aux paramètres de ton compte Google.[/]",
             border_style="yellow",
             padding=(1, 3),
-            title="[bold]Google OAuth[/]",
+            title="[bold]Google App Password[/]",
             title_align="left",
         )
     )
 
-    if not Confirm.ask("\n  Ouvrir le navigateur pour l'autorisation ?", default=True):
-        console.print("[dim]  → Tu peux relancer avec /gmail_setup[/]\n")
+    # ── Collect credentials ──
+    console.print()
+    email_addr = Prompt.ask("  [bold]Ton adresse Gmail[/]").strip()
+    if not email_addr or "@" not in email_addr:
+        console.print("  [red]✗ Adresse email invalide.[/]")
         return None
 
-    console.print("\n  ⏳ Ouverture du navigateur...\n")
-
-    try:
-        from integrations.gmail.auth import get_gmail_service
-
-        service = get_gmail_service(str(CREDENTIALS_PATH), str(TOKEN_PATH))
-
-        # Get the user's email address to confirm success
-        profile = service.users().getProfile(userId="me").execute()
-        email = profile.get("emailAddress", "inconnu")
-
-        console.print(f"  [green]✓ Connecté à [bold]{email}[/] ![/]")
-    except FileNotFoundError as e:
-        console.print(f"\n  [red]✗ {e}[/]")
+    app_password = Prompt.ask("  [bold]Mot de passe d'application[/] [dim](16 caractères)[/]").strip()
+    if not app_password:
+        console.print("  [red]✗ Mot de passe requis.[/]")
         return None
-    except Exception as e:
-        console.print(f"\n  [red]✗ Erreur OAuth : {e}[/]")
-        console.print("  [dim]Tu peux réessayer avec /gmail_setup[/]\n")
+
+    # Remove spaces (Google shows app passwords as "xxxx xxxx xxxx xxxx")
+    app_password = app_password.replace(" ", "")
+
+    # ── Test credentials ──
+    console.print("\n  ⏳ Test de connexion...")
+
+    from integrations.gmail.auth import validate_credentials
+
+    if not validate_credentials(email_addr, app_password):
+        console.print("  [red]✗ Connexion échouée.[/]")
+        console.print("  [dim]Vérifie ton email et mot de passe d'application.[/]")
+        console.print("  [dim]La vérification en 2 étapes doit être activée.[/]\n")
         return None
+
+    console.print(f"  [green]✓ Connecté à [bold]{email_addr}[/] ![/]")
 
     # ── Save ──
-    config = {
-        "email": email,
-        "credentials_path": str(CREDENTIALS_PATH),
-        "token_path": str(TOKEN_PATH),
-    }
+    config = {"email": email_addr, "app_password": app_password}
     save_gmail_config(**config)
 
     console.print()
     console.print(
         Panel(
             f"[bold green]Gmail configuré avec succès ![/]\n\n"
-            f"  Email  :  {email}\n"
-            f"  OAuth  :  {CREDENTIALS_PATH}\n"
-            f"  Token  :  {TOKEN_PATH}\n\n"
+            f"  Email  :  {email_addr}\n"
+            f"  Auth   :  Mot de passe d'application\n\n"
             "[dim]Utilise /mail dans le chat pour accéder à tes emails.[/]",
             border_style="green",
             padding=(1, 3),
@@ -239,5 +148,4 @@ def run_reconfigure(console: Console) -> dict | None:
             delete_gmail_config()
             console.print("  [green]✓ Gmail déconnecté.[/]\n")
             return None
-        # Fall through to full wizard for "reconfigurer"
     return run_setup_wizard(console)

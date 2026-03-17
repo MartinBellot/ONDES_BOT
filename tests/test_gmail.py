@@ -1,5 +1,5 @@
 """
-Gmail tests — require OAuth credentials to run.
+Gmail tests — IMAP/App Password based.
 Skip when not configured.
 """
 import pytest
@@ -23,7 +23,6 @@ def test_email_dataclass():
         date="2026-03-12",
         body="Hello world",
         snippet="Hello...",
-        labels=["INBOX"],
         is_unread=True,
     )
     assert email.id == "test123"
@@ -34,10 +33,7 @@ def test_email_dataclass():
 def test_html_to_text():
     from integrations.gmail.client import GmailClient
 
-    class FakeService:
-        pass
-
-    client = GmailClient(FakeService())
+    client = GmailClient("test@gmail.com", "fake_password")
     text = client._html_to_text("<p>Hello <b>World</b></p><br/>New line")
     assert "Hello" in text
     assert "World" in text

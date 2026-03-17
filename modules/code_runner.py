@@ -20,7 +20,7 @@ class PythonCodeRunner:
         self.timeout = timeout
 
     def execute(self, code: str, input_data: str = "") -> str:
-        work_dir = Path(tempfile.mkdtemp(prefix="nietz_run_"))
+        work_dir = Path(tempfile.mkdtemp(prefix="ONDES_run_"))
         script_file = work_dir / "script.py"
         script_file.write_text(code, encoding="utf-8")
 

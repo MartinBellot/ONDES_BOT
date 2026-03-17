@@ -41,6 +41,22 @@ def _format_thread_for_registry(emails) -> str:
     return "\n\n".join(lines)
 
 
+def _format_email_detail_for_registry(email) -> str:
+    """Format a single email detail for tool registry."""
+    if not email:
+        return "Email introuvable."
+    attachments = f"\nPièces jointes: {', '.join(email.attachments)}" if email.attachments else ""
+    return (
+        f"**De:** {email.sender}\n"
+        f"**À:** {email.to}\n"
+        f"**Objet:** {email.subject}\n"
+        f"**Date:** {email.date}\n"
+        f"**ID:** {email.id} | **Thread:** {email.thread_id}\n"
+        f"{attachments}\n\n"
+        f"{email.body}"
+    )
+
+
 class ChatInterface:
     def __init__(
         self,
@@ -89,7 +105,7 @@ class ChatInterface:
 
                 self.console.print(Panel(
                     Markdown(response),
-                    title="[bold green]NIETZ[/]",
+                    title="[bold green]ONDES[/]",
                     border_style="green",
                     padding=(1, 2),
                 ))
@@ -152,7 +168,7 @@ class ChatInterface:
         elif cmd == "/telegram_setup":
             self._handle_telegram_setup()
 
-        elif cmd in ("/mail", "/cal", "/tg", "/review", "/search"):
+        elif cmd in ("/mail", "/cal", "/tg", "/review", "/search", "/docker", "/gh", "/music", "/auto"):
             # Route these through Claude for natural processing
             natural_queries = {
                 "/mail": f"Montre-moi mes emails {args}".strip(),
@@ -160,12 +176,16 @@ class ChatInterface:
                 "/tg": f"Envoie ce message Telegram: {args}" if args else "Montre mes messages Telegram récents",
                 "/review": f"Fais une revue de code du fichier {args}" if args else "De quel fichier ?",
                 "/search": f"Recherche sur le web: {args}" if args else "Que veux-tu chercher ?",
+                "/docker": f"Docker: {args}" if args else "Liste mes containers Docker",
+                "/gh": f"GitHub: {args}" if args else "Montre mes repos GitHub",
+                "/music": f"Musique: {args}" if args else "Quel morceau est en cours ?",
+                "/auto": f"Automatisation: {args}" if args else "Liste mes jobs planifiés",
             }
             query = natural_queries.get(cmd, args)
             response = self.conversation.chat(query)
             self.console.print(Panel(
                 Markdown(response),
-                title="[bold green]NIETZ[/]",
+                title="[bold green]ONDES[/]",
                 border_style="green",
                 padding=(1, 2),
             ))
@@ -278,25 +298,21 @@ class ChatInterface:
         # Update the live gmail services
         if config:
             try:
-                from integrations.gmail.auth import get_gmail_service
                 from integrations.gmail.client import GmailClient
                 from integrations.gmail.reply_generator import ReplyGenerator
 
-                service = get_gmail_service(config["credentials_path"], config["token_path"])
-                gmail_client = GmailClient(service)
+                gmail_client = GmailClient(config["email"], config["app_password"])
                 self.services["gmail_client"] = gmail_client
 
-                claude_client = self.services.get("claude_client")
-                if claude_client:
-                    reply_gen = ReplyGenerator(claude_client, gmail_client)
-                else:
-                    reply_gen = None
+                reply_gen = ReplyGenerator(gmail_client)
 
                 registry = self.services.get("registry")
                 if registry:
                     registry.register("gmail_get_emails", lambda filter="all", max_results=10, search_query="": _format_emails_for_registry(gmail_client.get_emails(filter, max_results, search_query)))
+                    registry.register("gmail_read_email", lambda email_id: _format_email_detail_for_registry(gmail_client.get_email(email_id)))
                     registry.register("gmail_search", lambda query: _format_emails_for_registry(gmail_client.search(query)))
                     registry.register("gmail_get_thread", lambda thread_id: _format_thread_for_registry(gmail_client.get_email_thread(thread_id)))
+                    registry.register("gmail_send_email", lambda to, subject, body: gmail_client.send_email(to, subject, body))
                     if reply_gen:
                         registry.register("gmail_generate_reply", lambda email_id, instructions="", tone="professionnel": reply_gen.generate_reply(email_id, instructions, tone))
                 self.console.print("[green]✓ Gmail est maintenant actif pour cette session.[/]\n")
@@ -307,13 +323,14 @@ class ChatInterface:
             registry = self.services.get("registry")
             if registry:
                 registry.register("gmail_get_emails", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
+                registry.register("gmail_read_email", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
                 registry.register("gmail_search", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
                 registry.register("gmail_get_thread", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
+                registry.register("gmail_send_email", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
                 registry.register("gmail_generate_reply", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
 
     def _handle_telegram_setup(self):
         """Interactive Telegram setup/reconfigure."""
-        import asyncio
         from integrations.telegram.setup import run_reconfigure, load_telegram_config
 
         config = run_reconfigure(self.console)
@@ -327,13 +344,15 @@ class ChatInterface:
                 # Re-register tools with the live client
                 registry = self.services.get("registry")
                 if registry:
-                    registry.register("telegram_send", lambda text, chat_id=None: asyncio.run(client.send_message(text, chat_id)))
+                    async def _send(text, chat_id=None):
+                        return await client.send_message(text, chat_id)
 
-                    async def _fmt(c, lim):
-                        msgs = await c.get_recent_messages(lim)
-                        return c.format_messages(msgs)
+                    async def _get_messages(limit=20):
+                        msgs = await client.get_recent_messages(limit)
+                        return client.format_messages(msgs)
 
-                    registry.register("telegram_get_messages", lambda limit=20: asyncio.run(_fmt(client, limit)))
+                    registry.register("telegram_send", _send)
+                    registry.register("telegram_get_messages", _get_messages)
                 self.console.print("[green]✓ Telegram est maintenant actif pour cette session.[/]\n")
             except Exception as e:
                 self.console.print(f"[red]Erreur initialisation Telegram: {e}[/]")

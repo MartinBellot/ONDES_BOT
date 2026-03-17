@@ -89,7 +89,7 @@ def run_setup_wizard(console: Console) -> dict | None:
     console.print(
         Panel(
             "[bold cyan]🤖  Configuration Telegram[/]\n\n"
-            "NIETZ peut t'envoyer des messages sur Telegram :\n"
+            "ONDES peut t'envoyer des messages sur Telegram :\n"
             "notifications, résumés, rappels, etc.\n\n"
             "[dim]Cette config est stockée localement dans data/telegram_config.json[/]",
             border_style="cyan",
@@ -109,7 +109,7 @@ def run_setup_wizard(console: Console) -> dict | None:
             "1. Ouvre Telegram et cherche [bold]@BotFather[/]\n"
             "2. Envoie-lui :  [bold green]/newbot[/]\n"
             "3. Choisis un [bold]nom[/] pour ton bot (ex: Mon Assistant)\n"
-            "4. Choisis un [bold]username[/] finissant par 'bot' (ex: nietz_assistant_bot)\n"
+            "4. Choisis un [bold]username[/] finissant par 'bot' (ex: ONDES_assistant_bot)\n"
             "5. BotFather te donnera un [bold]token[/] de cette forme :\n\n"
             "   [bold white on grey23] 123456789:ABCdEfGhIjKlMnOpQrStUvWxYz [/]\n\n"
             "[dim]Copie ce token et colle-le ci-dessous.[/]",
@@ -145,7 +145,7 @@ def run_setup_wizard(console: Console) -> dict | None:
             f"1. Ouvre Telegram et cherche [bold]@{bot_info['username']}[/]\n"
             "2. Clique sur [bold]Start[/] ou envoie [bold green]/start[/]\n"
             "3. Envoie n'importe quel message (ex: [italic]hello[/])\n\n"
-            "[dim]NIETZ va détecter ton message automatiquement...[/]",
+            "[dim]ONDES va détecter ton message automatiquement...[/]",
             border_style="yellow",
             padding=(1, 3),
             title="[bold]Liaison[/]",
@@ -172,7 +172,7 @@ def run_setup_wizard(console: Console) -> dict | None:
         asyncio.run(
             bot.send_message(
                 chat_id=chat_id,
-                text="✅ *NIETZ BOT connecté !*\n\nTu recevras ici tes notifications et messages.",
+                text="✅ *ONDES BOT connecté !*\n\nTu recevras ici tes notifications et messages.",
                 parse_mode="Markdown",
             )
         )

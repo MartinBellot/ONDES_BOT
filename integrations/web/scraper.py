@@ -25,12 +25,20 @@ class WebScraper:
 
         text = soup.get_text(separator="\n", strip=True)
 
-        # Remove excessive blank lines
+        # Aggressive cleaning: remove short lines (nav, breadcrumbs, etc.)
         lines = [line.strip() for line in text.splitlines()]
-        text = "\n".join(line for line in lines if line)
+        cleaned = []
+        for line in lines:
+            if not line:
+                continue
+            # Skip very short lines likely to be UI noise
+            if len(line) < 15 and not any(c in line for c in '.!?:'):
+                continue
+            cleaned.append(line)
+        text = "\n".join(cleaned)
 
-        # Limit size for Claude context
-        return text[:15000]
+        # Limit size for Claude context — 5000 chars ≈ 1250 tokens
+        return text[:5000]
 
     def _validate_url(self, url: str):
         """Prevent SSRF — reject internal/localhost URLs."""

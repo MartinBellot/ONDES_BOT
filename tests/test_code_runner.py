@@ -3,8 +3,8 @@ from modules.code_runner import PythonCodeRunner
 
 def test_execute_simple():
     runner = PythonCodeRunner(timeout=10)
-    result = runner.execute("print('Hello, NIETZ!')")
-    assert "Hello, NIETZ!" in result
+    result = runner.execute("print('Hello, ONDES!')")
+    assert "Hello, ONDES!" in result
     assert "Succès" in result
 
 

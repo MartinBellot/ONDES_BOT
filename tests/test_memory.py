@@ -74,11 +74,11 @@ def test_relevant_facts_string():
 
     memory = Memory(db_path)
     memory.save_fact("preference", "langue", "français")
-    memory.save_fact("project", "NIETZ", "Bot assistant personnel")
+    memory.save_fact("project", "ONDES", "Bot assistant personnel")
 
     result = memory.get_relevant_facts()
     assert "langue" in result
-    assert "NIETZ" in result
+    assert "ONDES" in result
 
     Path(db_path).unlink()
 

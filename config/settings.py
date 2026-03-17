@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     ]
 
     # --- Paths internes ---
-    db_path: str = "data/nietz.db"
+    db_path: str = "data/ONDES.db"
 
     # --- Conversation ---
     max_history: int = 50

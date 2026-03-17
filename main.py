@@ -12,8 +12,12 @@ from core.memory import Memory
 from core.token_tracker import TokenTracker
 from core.tool_registry import ToolRegistry
 from integrations.apple_calendar.client import AppleCalendarClient
+from integrations.apple_music.client import AppleMusicClient
+from integrations.docker.client import DockerClient
+from integrations.github.client import GitHubClient
 from integrations.web.scraper import WebScraper
 from integrations.web.search import WebSearcher
+from modules.automation import AutomationManager
 from modules.code_runner import PythonCodeRunner
 from modules.code_reviewer import CodeReviewer
 from modules.file_manager import FileManager
@@ -36,12 +40,16 @@ def setup_services(settings: Settings, console: Console):
     # Modules
     file_manager = FileManager()
     code_runner = PythonCodeRunner(timeout=settings.code_runner_timeout)
-    code_reviewer = CodeReviewer(claude_client, file_manager)
+    code_reviewer = CodeReviewer(file_manager)
     task_manager = TaskManager(db_path)
     image_processor = ImageProcessor()
     web_searcher = WebSearcher()
     web_scraper = WebScraper()
     calendar_client = AppleCalendarClient()
+    music_client = AppleMusicClient()
+    docker_client = DockerClient()
+    github_client = GitHubClient()
+    automation = AutomationManager(db_path, notify_callback=_system_notify)
 
     # Gmail (optional — config interactive via setup wizard)
     gmail_client = None
@@ -50,13 +58,11 @@ def setup_services(settings: Settings, console: Console):
     gmail_cfg = load_gmail_config()
     if gmail_cfg:
         try:
-            from integrations.gmail.auth import get_gmail_service
             from integrations.gmail.client import GmailClient
             from integrations.gmail.reply_generator import ReplyGenerator
 
-            service = get_gmail_service(gmail_cfg["credentials_path"], gmail_cfg["token_path"])
-            gmail_client = GmailClient(service)
-            reply_generator = ReplyGenerator(claude_client, gmail_client)
+            gmail_client = GmailClient(gmail_cfg["email"], gmail_cfg["app_password"])
+            reply_generator = ReplyGenerator(gmail_client)
             console.print(f"[green]✓[/] Gmail connecté ({gmail_cfg.get('email', '?')})")
         except Exception as e:
             console.print(f"[yellow]⚠ Gmail: {e}[/]")
@@ -83,12 +89,16 @@ def setup_services(settings: Settings, console: Console):
     # Gmail tools
     if gmail_client:
         registry.register("gmail_get_emails", lambda filter="all", max_results=10, search_query="": _format_emails(gmail_client.get_emails(filter, max_results, search_query)))
+        registry.register("gmail_read_email", lambda email_id: _format_email_detail(gmail_client.get_email(email_id)))
         registry.register("gmail_search", lambda query: _format_emails(gmail_client.search(query)))
         registry.register("gmail_get_thread", lambda thread_id: _format_thread(gmail_client.get_email_thread(thread_id)))
+        registry.register("gmail_send_email", lambda to, subject, body: gmail_client.send_email(to, subject, body))
     else:
         registry.register("gmail_get_emails", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
+        registry.register("gmail_read_email", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
         registry.register("gmail_search", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
         registry.register("gmail_get_thread", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
+        registry.register("gmail_send_email", lambda **kwargs: "Gmail non configuré. Tape /gmail_setup pour le configurer.")
 
     if reply_generator:
         registry.register("gmail_generate_reply", lambda email_id, instructions="", tone="professionnel": reply_generator.generate_reply(email_id, instructions, tone))
@@ -137,20 +147,122 @@ def setup_services(settings: Settings, console: Console):
 
     # Telegram tools
     if telegram_client:
-        registry.register("telegram_send", lambda text, chat_id=None: asyncio.run(telegram_client.send_message(text, chat_id)))
-        registry.register("telegram_get_messages", lambda limit=20: asyncio.run(_format_telegram(telegram_client, limit)))
+        async def _tg_send(text, chat_id=None):
+            return await telegram_client.send_message(text, chat_id)
+
+        async def _tg_get_messages(limit=20):
+            return await _format_telegram(telegram_client, limit)
+
+        registry.register("telegram_send", _tg_send)
+        registry.register("telegram_get_messages", _tg_get_messages)
     else:
         registry.register("telegram_send", lambda **kwargs: "Telegram non configuré.")
         registry.register("telegram_get_messages", lambda **kwargs: "Telegram non configuré.")
 
-    # Memory tools
-    registry.register("memory_save_fact", lambda category, key, value: (memory.save_fact(category, key, value), f"Fait mémorisé: [{category}] {key} = {value}")[1])
+    # Memory tools (with conversation reference for cache invalidation)
+    _conversation_ref = [None]  # Will be set after ConversationManager is created
+
+    def _save_fact_and_invalidate(category, key, value):
+        memory.save_fact(category, key, value)
+        if _conversation_ref[0]:
+            _conversation_ref[0].invalidate_facts_cache()
+        return f"Fait mémorisé: [{category}] {key} = {value}"
+
+    registry.register("memory_save_fact", _save_fact_and_invalidate)
     registry.register("memory_get_facts", lambda category=None: memory.get_relevant_facts())
 
     # System tools
-    registry.register("system_notify", lambda message, title="NIETZ BOT": _system_notify(title, message))
+    registry.register("system_notify", lambda message, title="ONDES BOT": _system_notify(title, message))
     registry.register("system_open_url", lambda url: _system_open_url(url))
     registry.register("system_clipboard_set", lambda text: _system_clipboard(text))
+
+    # Docker tools
+    if docker_client.is_available():
+        registry.register("docker_list_containers", lambda all=True: docker_client.list_containers(all))
+        registry.register("docker_run", lambda image, name=None, ports=None, volumes=None, env=None, restart_policy="unless-stopped", extra_args="": docker_client.run_container(image, name, ports, volumes, env, True, restart_policy, extra_args))
+        registry.register("docker_start", lambda name_or_id: docker_client.start_container(name_or_id))
+        registry.register("docker_stop", lambda name_or_id: docker_client.stop_container(name_or_id))
+        registry.register("docker_restart", lambda name_or_id: docker_client.restart_container(name_or_id))
+        registry.register("docker_remove", lambda name_or_id, force=False: docker_client.remove_container(name_or_id, force))
+        registry.register("docker_logs", lambda name_or_id, tail=50: docker_client.container_logs(name_or_id, tail))
+        registry.register("docker_stats", lambda name_or_id=None: docker_client.container_stats(name_or_id))
+        registry.register("docker_exec", lambda name_or_id, command: docker_client.exec_in_container(name_or_id, command))
+        registry.register("docker_list_images", lambda: docker_client.list_images())
+        registry.register("docker_pull", lambda image: docker_client.pull_image(image))
+        registry.register("docker_list_volumes", lambda: docker_client.list_volumes())
+        registry.register("docker_list_networks", lambda: docker_client.list_networks())
+        registry.register("docker_compose_up", lambda compose_file, project_name=None: docker_client.compose_up(compose_file, project_name))
+        registry.register("docker_compose_down", lambda compose_file, project_name=None, remove_volumes=False: docker_client.compose_down(compose_file, project_name, remove_volumes))
+        registry.register("docker_compose_status", lambda compose_file, project_name=None: docker_client.compose_status(compose_file, project_name))
+        registry.register("docker_compose_logs", lambda compose_file, service=None, tail=50: docker_client.compose_logs(compose_file, service, tail))
+        registry.register("docker_generate_compose", lambda template, output_dir, **kwargs: docker_client.generate_compose_file(template, output_dir, **kwargs))
+        registry.register("docker_templates", lambda: docker_client.get_available_templates())
+        registry.register("docker_system_info", lambda: docker_client.system_info())
+        registry.register("docker_system_prune", lambda all=False: docker_client.system_prune(all))
+        console.print("[green]✓[/] Docker connecté")
+    else:
+        console.print("[dim]○ Docker non disponible (daemon non lancé ou non installé)[/]")
+        _docker_unavailable = lambda **kwargs: "Docker n'est pas disponible. Lance Docker Desktop ou installe Docker."
+        for tool_name in [
+            "docker_list_containers", "docker_run", "docker_start", "docker_stop",
+            "docker_restart", "docker_remove", "docker_logs", "docker_stats",
+            "docker_exec", "docker_list_images", "docker_pull", "docker_list_volumes",
+            "docker_list_networks", "docker_compose_up", "docker_compose_down",
+            "docker_compose_status", "docker_compose_logs", "docker_generate_compose",
+            "docker_templates", "docker_system_info", "docker_system_prune",
+        ]:
+            registry.register(tool_name, _docker_unavailable)
+
+    # GitHub tools
+    if github_client.is_available():
+        registry.register("github_list_repos", lambda limit=10, sort="updated": github_client.list_repos(limit, sort))
+        registry.register("github_repo_info", lambda repo: github_client.repo_info(repo))
+        registry.register("github_list_issues", lambda repo=None, state="open", limit=10: github_client.list_issues(repo, state, limit))
+        registry.register("github_create_issue", lambda title, body="", repo=None, labels="": github_client.create_issue(title, body, repo, labels))
+        registry.register("github_view_issue", lambda issue_number, repo=None: github_client.view_issue(issue_number, repo))
+        registry.register("github_close_issue", lambda issue_number, repo=None: github_client.close_issue(issue_number, repo))
+        registry.register("github_list_prs", lambda repo=None, state="open", limit=10: github_client.list_prs(repo, state, limit))
+        registry.register("github_create_pr", lambda title, body="", base="main", repo=None: github_client.create_pr(title, body, base, repo))
+        registry.register("github_view_pr", lambda pr_number, repo=None: github_client.view_pr(pr_number, repo))
+        registry.register("github_merge_pr", lambda pr_number, method="squash", repo=None: github_client.merge_pr(pr_number, method, repo))
+        registry.register("github_actions_runs", lambda repo=None, limit=5: github_client.list_runs(repo, limit))
+        registry.register("github_notifications", lambda limit=10: github_client.notifications(limit))
+        registry.register("github_git_status", lambda path=None: github_client.git_status(path))
+        registry.register("github_git_diff", lambda path=None, staged=False: github_client.git_diff(path, staged))
+        console.print("[green]✓[/] GitHub connecté (gh CLI)")
+    else:
+        console.print("[dim]○ GitHub CLI non disponible — installe avec: brew install gh && gh auth login[/]")
+        _gh_unavailable = lambda **kwargs: "GitHub CLI (gh) non disponible. Installe avec: brew install gh && gh auth login"
+        for tool_name in [
+            "github_list_repos", "github_repo_info", "github_list_issues",
+            "github_create_issue", "github_view_issue", "github_close_issue",
+            "github_list_prs", "github_create_pr", "github_view_pr",
+            "github_merge_pr", "github_actions_runs", "github_notifications",
+            "github_git_status", "github_git_diff",
+        ]:
+            registry.register(tool_name, _gh_unavailable)
+
+    # Apple Music tools
+    registry.register("music_play", lambda: music_client.play())
+    registry.register("music_pause", lambda: music_client.pause())
+    registry.register("music_next", lambda: music_client.next_track())
+    registry.register("music_previous", lambda: music_client.previous_track())
+    registry.register("music_now_playing", lambda: music_client.now_playing())
+    registry.register("music_volume", lambda level: music_client.set_volume(level))
+    registry.register("music_search_play", lambda query: music_client.search_and_play(query))
+    registry.register("music_playlists", lambda: music_client.list_playlists())
+    registry.register("music_play_playlist", lambda name: music_client.play_playlist(name))
+    registry.register("music_shuffle", lambda enabled: music_client.set_shuffle(enabled))
+    console.print("[green]✓[/] Apple Music prêt")
+
+    # Automation tools
+    automation.start()
+    registry.register("automation_add_job", lambda name, schedule, action, action_args=None: automation.add_recurring_job(name, schedule, action, action_args))
+    registry.register("automation_remove_job", lambda job_id: automation.remove_job(job_id))
+    registry.register("automation_list_jobs", lambda: automation.list_jobs())
+    registry.register("automation_add_reminder", lambda message, remind_at: automation.add_reminder(message, remind_at))
+    registry.register("automation_morning_briefing", lambda time="08:00": automation.setup_morning_briefing(time))
+    console.print("[green]✓[/] Automatisation démarrée")
 
     return {
         "token_tracker": token_tracker,
@@ -165,6 +277,11 @@ def setup_services(settings: Settings, console: Console):
         "web_searcher": web_searcher,
         "web_scraper": web_scraper,
         "calendar_client": calendar_client,
+        "music_client": music_client,
+        "docker_client": docker_client,
+        "github_client": github_client,
+        "automation": automation,
+        "_conversation_ref": _conversation_ref,
         "gmail_client": gmail_client,
         "telegram_client": telegram_client,
     }
@@ -186,6 +303,21 @@ def _format_emails(emails) -> str:
             f"   {email.snippet[:100]}"
         )
     return "\n\n".join(lines)
+
+
+def _format_email_detail(email) -> str:
+    if not email:
+        return "Email introuvable."
+    attachments = f"\nPièces jointes: {', '.join(email.attachments)}" if email.attachments else ""
+    return (
+        f"**De:** {email.sender}\n"
+        f"**À:** {email.to}\n"
+        f"**Objet:** {email.subject}\n"
+        f"**Date:** {email.date}\n"
+        f"**ID:** {email.id} | **Thread:** {email.thread_id}\n"
+        f"{attachments}\n\n"
+        f"{email.body}"
+    )
 
 
 def _format_thread(emails) -> str:
@@ -287,6 +419,9 @@ def main():
         memory=services["memory"],
         console=console,
     )
+
+    # Wire the conversation reference for facts cache invalidation
+    services["_conversation_ref"][0] = conversation
 
     # Start chat loop
     chat = ChatInterface(

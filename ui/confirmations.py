@@ -16,7 +16,7 @@ def render_confirmation(
     details_grid.add_row("Action", action)
     for key, value in details.items():
         display_value = str(value)
-        if len(display_value) > 100:
+        if key != "body" and len(display_value) > 100:
             display_value = display_value[:100] + "..."
         details_grid.add_row(key.capitalize(), display_value)
 

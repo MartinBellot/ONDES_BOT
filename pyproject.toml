@@ -1,5 +1,5 @@
 [project]
-name = "nietz-bot"
+name = "ONDES-bot"
 version = "1.0.0"
 description = "Assistant personnel Python · Interface RICH · Claude Sonnet"
 requires-python = ">=3.12"

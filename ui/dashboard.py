@@ -32,7 +32,7 @@ class Dashboard:
         # Header
         now = datetime.now().strftime("%A %d %B %Y, %H:%M")
         header = Text()
-        header.append("  NIETZ BOT  ", style="bold cyan on black")
+        header.append("  ONDES BOT  ", style="bold cyan on black")
         header.append(f"  ·  Claude Sonnet  ·  {now}  ", style="dim")
         layout["header"].update(Panel(header, style="bold"))
 

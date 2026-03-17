@@ -40,7 +40,7 @@ def render_status_bar(tracker: TokenTracker) -> Text:
     budget_indicator = "■" if pct < 75 else ("▲" if pct < 100 else "✕")
 
     bar = Text()
-    bar.append("  NIETZ BOT  ", style="bold cyan")
+    bar.append("  ONDES BOT  ", style="bold cyan")
     bar.append("· ", style="dim")
     bar.append(f"Session: {sess['total']:,} tok", style="white")
     bar.append("  ", style="dim")
@@ -104,6 +104,10 @@ def render_help_panel() -> Panel:
         ("/review <fichier>", "Revue de code"),
         ("/tg <message>", "Envoyer un message Telegram"),
         ("/search <query>", "Recherche web"),
+        ("/docker", "Gérer Docker (containers, images, compose)"),
+        ("/gh", "GitHub (repos, issues, PRs, actions)"),
+        ("/music", "Contrôler Apple Music"),
+        ("/auto", "Gérer les automatisations"),
         ("/memory", "Visualiser la mémoire (faits, actions, résumés)"),
         ("/memory facts", "Faits mémorisés uniquement"),
         ("/memory actions", "Actions récentes uniquement"),

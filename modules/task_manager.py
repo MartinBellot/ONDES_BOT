@@ -189,7 +189,7 @@ class TaskManager:
             # macOS notification
             subprocess.run([
                 "osascript", "-e",
-                f'display notification "{row[0]}" with title "NIETZ BOT — Rappel"',
+                f'display notification "{row[0]}" with title "ONDES BOT — Rappel"',
             ])
 
     def get_projects(self) -> str:
