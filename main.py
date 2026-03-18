@@ -69,14 +69,14 @@ def setup_services(settings: Settings, console: Console):
     else:
         console.print("[dim]○ Gmail non configuré — tape [bold]/gmail_setup[/bold] dans le chat[/]")
 
-    # Telegram (optional — config interactive via setup wizard)
-    telegram_client = None
+    # Telegram interface (optional — config interactive via setup wizard)
+    telegram_interface = None
     from integrations.telegram.setup import load_telegram_config, run_setup_wizard
     tg_config = load_telegram_config()
     if tg_config:
         try:
-            from integrations.telegram.client import TelegramClient
-            telegram_client = TelegramClient(tg_config["bot_token"], tg_config["chat_id"])
+            from integrations.telegram.client import TelegramInterface
+            telegram_interface = TelegramInterface(tg_config["bot_token"], tg_config["chat_id"])
             console.print(f"[green]✓[/] Telegram connecté (@{tg_config.get('bot_username', '?')})")
         except Exception as e:
             console.print(f"[yellow]⚠ Telegram: {e}[/]")
@@ -144,20 +144,6 @@ def setup_services(settings: Settings, console: Console):
     registry.register("task_update", lambda task_id, **kwargs: task_manager.update_task(task_id, **kwargs))
     registry.register("task_get_today", lambda: task_manager.get_today())
     registry.register("task_add_reminder", lambda task_id, remind_at: task_manager.add_reminder(task_id, remind_at))
-
-    # Telegram tools
-    if telegram_client:
-        async def _tg_send(text, chat_id=None):
-            return await telegram_client.send_message(text, chat_id)
-
-        async def _tg_get_messages(limit=20):
-            return await _format_telegram(telegram_client, limit)
-
-        registry.register("telegram_send", _tg_send)
-        registry.register("telegram_get_messages", _tg_get_messages)
-    else:
-        registry.register("telegram_send", lambda **kwargs: "Telegram non configuré.")
-        registry.register("telegram_get_messages", lambda **kwargs: "Telegram non configuré.")
 
     # Memory tools (with conversation reference for cache invalidation)
     _conversation_ref = [None]  # Will be set after ConversationManager is created
@@ -283,7 +269,7 @@ def setup_services(settings: Settings, console: Console):
         "automation": automation,
         "_conversation_ref": _conversation_ref,
         "gmail_client": gmail_client,
-        "telegram_client": telegram_client,
+        "telegram_interface": telegram_interface,
     }
 
 
@@ -341,11 +327,6 @@ def _format_calendar_events(events) -> str:
         loc = f" @ {event.location}" if event.location else ""
         lines.append(f"  • {time_str} — {event.title}{loc}")
     return "\n".join(lines)
-
-
-async def _format_telegram(telegram_client, limit: int) -> str:
-    messages = await telegram_client.get_recent_messages(limit)
-    return telegram_client.format_messages(messages)
 
 
 def _system_notify(title: str, message: str) -> str:
@@ -422,6 +403,13 @@ def main():
 
     # Wire the conversation reference for facts cache invalidation
     services["_conversation_ref"][0] = conversation
+
+    # Start Telegram interface if configured
+    tg_interface = services.get("telegram_interface")
+    if tg_interface:
+        tg_interface.set_conversation(conversation)
+        tg_interface.start()
+        console.print("[green]✓[/] Interface Telegram démarrée (polling en arrière-plan)")
 
     # Start chat loop
     chat = ChatInterface(

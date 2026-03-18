@@ -102,7 +102,6 @@ def render_help_panel() -> Panel:
         ("/tasks done <id>", "Marquer une tâche comme faite"),
         ("/run <code>", "Exécuter du Python inline"),
         ("/review <fichier>", "Revue de code"),
-        ("/tg <message>", "Envoyer un message Telegram"),
         ("/search <query>", "Recherche web"),
         ("/docker", "Gérer Docker (containers, images, compose)"),
         ("/gh", "GitHub (repos, issues, PRs, actions)"),
@@ -114,7 +113,7 @@ def render_help_panel() -> Panel:
         ("/stats", "Statistiques tokens & coûts"),
         ("/clear", "Vider l'historique"),
         ("/gmail_setup", "Configurer/reconfigurer Gmail"),
-        ("/telegram_setup", "Configurer/reconfigurer Telegram"),
+        ("/telegram_setup", "Configurer Telegram comme interface"),
         ("/help", "Cette aide"),
     ]
 

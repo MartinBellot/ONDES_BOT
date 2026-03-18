@@ -168,12 +168,11 @@ class ChatInterface:
         elif cmd == "/telegram_setup":
             self._handle_telegram_setup()
 
-        elif cmd in ("/mail", "/cal", "/tg", "/review", "/search", "/docker", "/gh", "/music", "/auto"):
+        elif cmd in ("/mail", "/cal", "/review", "/search", "/docker", "/gh", "/music", "/auto"):
             # Route these through Claude for natural processing
             natural_queries = {
                 "/mail": f"Montre-moi mes emails {args}".strip(),
                 "/cal": f"Montre-moi mon calendrier {args}".strip(),
-                "/tg": f"Envoie ce message Telegram: {args}" if args else "Montre mes messages Telegram récents",
                 "/review": f"Fais une revue de code du fichier {args}" if args else "De quel fichier ?",
                 "/search": f"Recherche sur le web: {args}" if args else "Que veux-tu chercher ?",
                 "/docker": f"Docker: {args}" if args else "Liste mes containers Docker",
@@ -335,30 +334,17 @@ class ChatInterface:
 
         config = run_reconfigure(self.console)
 
-        # Update the live telegram_client in services
         if config:
             try:
-                from integrations.telegram.client import TelegramClient
-                client = TelegramClient(config["bot_token"], config["chat_id"])
-                self.services["telegram_client"] = client
-                # Re-register tools with the live client
-                registry = self.services.get("registry")
-                if registry:
-                    async def _send(text, chat_id=None):
-                        return await client.send_message(text, chat_id)
-
-                    async def _get_messages(limit=20):
-                        msgs = await client.get_recent_messages(limit)
-                        return client.format_messages(msgs)
-
-                    registry.register("telegram_send", _send)
-                    registry.register("telegram_get_messages", _get_messages)
-                self.console.print("[green]✓ Telegram est maintenant actif pour cette session.[/]\n")
+                from integrations.telegram.client import TelegramInterface
+                interface = TelegramInterface(config["bot_token"], config["chat_id"])
+                # Wire conversation and start polling
+                conversation = self.conversation
+                interface.set_conversation(conversation)
+                interface.start()
+                self.services["telegram_interface"] = interface
+                self.console.print("[green]✓ Telegram est maintenant actif — interface démarrée.[/]\n")
             except Exception as e:
                 self.console.print(f"[red]Erreur initialisation Telegram: {e}[/]")
         else:
-            self.services["telegram_client"] = None
-            registry = self.services.get("registry")
-            if registry:
-                registry.register("telegram_send", lambda **kwargs: "Telegram non configuré.")
-                registry.register("telegram_get_messages", lambda **kwargs: "Telegram non configuré.")
+            self.services["telegram_interface"] = None

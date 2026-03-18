@@ -1,59 +1,118 @@
-from dataclasses import dataclass, field
+"""Telegram interface for ONDES Bot — acts as a second UI alongside the terminal."""
+
+import asyncio
+import logging
 from datetime import datetime
 
-from telegram import Bot
+from telegram import Bot, Update
+from telegram.ext import (
+    Application,
+    MessageHandler,
+    CommandHandler,
+    filters,
+)
+
+logger = logging.getLogger(__name__)
 
 
-@dataclass
-class TelegramMessage:
-    from_name: str
-    text: str
-    date: datetime
-    chat_id: int
+class TelegramInterface:
+    """Runs the Telegram bot as a chat interface to ONDES, alongside the terminal."""
 
+    def __init__(self, token: str, allowed_chat_id: int):
+        self.token = token
+        self.allowed_chat_id = allowed_chat_id
+        self._conversation = None  # Set via set_conversation()
+        self._app: Application | None = None
 
-class TelegramClient:
-    def __init__(self, token: str, your_chat_id: int):
-        self.bot = Bot(token=token)
-        self.your_chat_id = your_chat_id
-        self.pending_messages: list[TelegramMessage] = []
-        self._enabled = bool(token)
+    def set_conversation(self, conversation):
+        """Inject the ConversationManager so messages are routed through Claude."""
+        self._conversation = conversation
 
-    async def send_message(self, text: str, chat_id: int | None = None) -> str:
-        if not self._enabled:
-            return "Telegram non configuré."
-        target = chat_id or self.your_chat_id
-        await self.bot.send_message(
-            chat_id=target,
-            text=text,
-            parse_mode="Markdown",
-        )
-        return f"Message envoyé à {target}"
+    async def _handle_message(self, update: Update, context) -> None:
+        """Process an incoming Telegram message through the ConversationManager."""
+        if not update.message or not update.message.text:
+            return
 
-    async def get_recent_messages(self, limit: int = 20) -> list[TelegramMessage]:
-        if not self._enabled:
-            return []
-        updates = await self.bot.get_updates(limit=limit)
-        messages = []
-        for update in updates:
-            if update.message and update.message.text:
-                messages.append(TelegramMessage(
-                    from_name=update.effective_user.full_name if update.effective_user else "Inconnu",
-                    text=update.message.text,
-                    date=update.message.date,
-                    chat_id=update.message.chat_id,
-                ))
-        return messages
+        # Only respond to the authorized user
+        if update.message.chat_id != self.allowed_chat_id:
+            return
 
-    async def send_to_self(self, message: str) -> str:
-        return await self.send_message(message, self.your_chat_id)
+        user_text = update.message.text.strip()
+        if not user_text:
+            return
 
-    def format_messages(self, messages: list[TelegramMessage]) -> str:
-        if not messages:
-            return "Aucun message récent."
-        lines = []
-        for msg in messages:
-            lines.append(
-                f"**{msg.from_name}** ({msg.date.strftime('%d/%m %H:%M')}):\n{msg.text}"
+        if not self._conversation:
+            await update.message.reply_text("⚠️ Bot pas encore prêt, réessaye dans quelques secondes.")
+            return
+
+        try:
+            # Route through the same ConversationManager as the terminal
+            response = self._conversation.chat(user_text)
+
+            # Telegram messages have a 4096 char limit — split if needed
+            for chunk in _split_message(response):
+                await update.message.reply_text(chunk, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Telegram handler error: {e}")
+            try:
+                await update.message.reply_text(f"❌ Erreur: {e}")
+            except Exception:
+                pass
+
+    async def _handle_start(self, update: Update, context) -> None:
+        """Handle /start command."""
+        if update.message and update.message.chat_id == self.allowed_chat_id:
+            await update.message.reply_text(
+                "👋 *ONDES Bot* est connecté !\n\n"
+                "Envoie-moi n'importe quel message et je le traiterai "
+                "exactement comme dans le terminal.",
+                parse_mode="Markdown",
             )
-        return "\n\n".join(lines)
+
+    def start(self) -> None:
+        """Start the Telegram bot polling in a background thread (non-blocking)."""
+        import threading
+
+        def _run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._run_polling())
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+    async def _run_polling(self) -> None:
+        """Build the Application and start polling."""
+        self._app = (
+            Application.builder()
+            .token(self.token)
+            .build()
+        )
+        self._app.add_handler(CommandHandler("start", self._handle_start))
+        self._app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message))
+
+        await self._app.initialize()
+        await self._app.start()
+        await self._app.updater.start_polling(drop_pending_updates=True)
+
+        # Keep running forever (daemon thread will be killed on exit)
+        stop_event = asyncio.Event()
+        await stop_event.wait()
+
+
+def _split_message(text: str, max_len: int = 4096) -> list[str]:
+    """Split a long message into chunks that fit Telegram's limit."""
+    if len(text) <= max_len:
+        return [text]
+    chunks = []
+    while text:
+        if len(text) <= max_len:
+            chunks.append(text)
+            break
+        # Try to split on a newline
+        split_at = text.rfind("\n", 0, max_len)
+        if split_at < max_len // 2:
+            split_at = max_len
+        chunks.append(text[:split_at])
+        text = text[split_at:].lstrip("\n")
+    return chunks

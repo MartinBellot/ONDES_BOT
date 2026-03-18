@@ -4,7 +4,6 @@ from typing import Any, Callable
 CONFIRMATION_REQUIRED = {
     "calendar_create_event",
     "file_write",
-    "telegram_send",
     "gmail_send_email",
     "docker_remove",
     "docker_compose_down",
@@ -407,29 +406,6 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "task_id": {"type": "integer"},
                 "remind_at": {"type": "string", "description": "ISO 8601"},
-            },
-        },
-    },
-    # ═══ TELEGRAM ═══
-    {
-        "name": "telegram_send",
-        "description": "Envoie un message Telegram (CONFIRMATION REQUISE)",
-        "input_schema": {
-            "type": "object",
-            "required": ["text"],
-            "properties": {
-                "text": {"type": "string"},
-                "chat_id": {"type": "integer"},
-            },
-        },
-    },
-    {
-        "name": "telegram_get_messages",
-        "description": "Récupère les messages Telegram récents",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "limit": {"type": "integer", "description": "Défaut: 20"},
             },
         },
     },
@@ -1043,13 +1019,6 @@ TOOL_GROUPS = {
         "tools": {"task_create", "task_list", "task_complete", "task_update", "task_get_today", "task_add_reminder"},
         "keywords": re.compile(
             r"tâche|task|todo|to.?do|rappel|remind|projet|deadline|échéance|priorit",
-            re.IGNORECASE,
-        ),
-    },
-    "telegram": {
-        "tools": {"telegram_send", "telegram_get_messages"},
-        "keywords": re.compile(
-            r"telegram|tg|envoie.*message|notification",
             re.IGNORECASE,
         ),
     },
