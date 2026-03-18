@@ -10,6 +10,7 @@ from core.token_tracker import TokenTracker
 from modules.code_runner import PythonCodeRunner
 from modules.task_manager import TaskManager
 from ui.panels import render_status_bar, render_stats_panel, render_help_panel
+from ui.themes import C, S, BORDERS, BOX
 
 
 def _format_emails_for_registry(emails) -> str:
@@ -77,8 +78,10 @@ class ChatInterface:
     def run(self):
         self.console.print(
             Panel(
-                "[bold cyan]Que puis-je faire pour toi ?[/]\n[dim]Tape /help pour voir les commandes disponibles[/]",
-                border_style="cyan",
+                f"[bold {C['violet_bright']}]Que puis-je faire pour toi ?[/]\n[{C['text_dim']}]Tape /help pour voir les commandes disponibles[/]",
+                border_style=BORDERS["prompt"],
+                box=BOX,
+                padding=(1, 2),
             )
         )
 
@@ -87,13 +90,13 @@ class ChatInterface:
                 status = render_status_bar(self.tracker)
                 self.console.print(status)
 
-                user_input = self.console.input("[bold cyan]Toi[/] › ").strip()
+                user_input = self.console.input(f"[bold {C['violet_bright']}]›[/] ").strip()
 
                 if not user_input:
                     continue
 
                 if user_input.lower() in ("/quit", "/exit", "/q"):
-                    self.console.print("[dim]À bientôt ! 👋[/]")
+                    self.console.print(f"[{C['text_dim']}]À bientôt ! 👋[/]")
                     break
 
                 if user_input.startswith("/"):
@@ -105,13 +108,15 @@ class ChatInterface:
 
                 self.console.print(Panel(
                     Markdown(response),
-                    title="[bold green]ONDES[/]",
-                    border_style="green",
+                    title=f"[bold {C['violet']}]◉ ONDES[/]",
+                    title_align="left",
+                    border_style=BORDERS["response"],
+                    box=BOX,
                     padding=(1, 2),
                 ))
 
             except KeyboardInterrupt:
-                self.console.print("\n[dim]Ctrl+C — tape /quit pour quitter[/]")
+                self.console.print(f"\n[{C['text_dim']}]Ctrl+C — tape /quit pour quitter[/]")
             except EOFError:
                 break
 
@@ -125,21 +130,24 @@ class ChatInterface:
 
         elif cmd == "/clear":
             self.conversation.clear_history()
-            self.console.print("[dim]Historique vidé.[/]")
+            self.console.print(f"[{C['text_dim']}]Historique vidé.[/]")
 
         elif cmd == "/stats":
             self.console.print(render_stats_panel(self.tracker))
 
         elif cmd == "/run":
             if not args:
-                self.console.print("[red]Usage: /run <code python>[/]")
+                self.console.print(f"[{C['red']}]Usage: /run <code python>[/]")
                 return
-            with self.console.status("[bold yellow]Exécution...[/]"):
+            with self.console.status(f"[bold {C['amber']}]Exécution...[/]"):
                 result = self.code_runner.execute(args)
             self.console.print(Panel(
                 Markdown(result),
-                title="[bold blue]🐍 Python[/]",
-                border_style="blue",
+                title=f"[bold {C['blue']}]🐍 Python[/]",
+                title_align="left",
+                border_style=C["blue"],
+                box=BOX,
+                padding=(1, 2),
             ))
 
         elif cmd == "/tasks":
@@ -151,12 +159,15 @@ class ChatInterface:
                     result = "Usage: /tasks done <id>"
                 self.console.print(result)
             else:
-                with self.console.status("[bold yellow]Chargement...[/]"):
+                with self.console.status(f"[bold {C['amber']}]Chargement...[/]"):
                     result = self.task_manager.get_tasks(status=args if args else "todo")
                 self.console.print(Panel(
                     Markdown(result),
-                    title="[bold]✅ Tâches[/]",
-                    border_style="green",
+                    title=f"[bold {C['emerald']}]✅ Tâches[/]",
+                    title_align="left",
+                    border_style=BORDERS["task"],
+                    box=BOX,
+                    padding=(1, 2),
                 ))
 
         elif cmd in ("/mem", "/memory"):
@@ -184,13 +195,15 @@ class ChatInterface:
             response = self.conversation.chat(query)
             self.console.print(Panel(
                 Markdown(response),
-                title="[bold green]ONDES[/]",
-                border_style="green",
+                title=f"[bold {C['violet']}]◉ ONDES[/]",
+                title_align="left",
+                border_style=BORDERS["response"],
+                box=BOX,
                 padding=(1, 2),
             ))
 
         else:
-            self.console.print(f"[red]Commande inconnue: {cmd}. Tape /help pour l'aide.[/]")
+            self.console.print(f"[{C['red']}]Commande inconnue: {cmd}. Tape /help pour l'aide.[/]")
 
     def _handle_memory(self, args: str):
         """Display memory contents in a rich panel."""
@@ -207,7 +220,7 @@ class ChatInterface:
     def _show_memory_facts(self, memory):
         facts = memory.get_facts(limit=50)
         if not facts:
-            self.console.print(Panel("[dim]Aucun fait mémorisé.[/]", title="[bold]🧠 Mémoire · Faits[/]", border_style="bright_blue"))
+            self.console.print(Panel(f"[{C['text_dim']}]Aucun fait mémorisé.[/]", title=f"[bold {C['violet']}]🧠 Mémoire · Faits[/]", title_align="left", border_style=C["violet_dim"], box=BOX))
             return
 
         # Group by category
@@ -218,30 +231,30 @@ class ChatInterface:
         content = Text()
         for cat, items in sorted(categories.items()):
             emoji = {"preference": "⚙️", "context": "📌", "person": "👤", "project": "📁"}.get(cat, "📝")
-            content.append(f"\n {emoji} {cat.upper()}\n", style="bold underline")
+            content.append(f"\n {emoji} {cat.upper()}\n", style=f"bold {C['violet_bright']}")
             for item in items:
-                content.append(f"   {item['key']}", style="bold")
-                content.append(f" → {item['value']}\n")
+                content.append(f"   {item['key']}", style=f"bold {C['text']}")
+                content.append(f" → {item['value']}\n", style=C["text_dim"])
 
-        self.console.print(Panel(content, title="[bold]🧠 Mémoire · Faits[/]", border_style="bright_blue", padding=(1, 2)))
+        self.console.print(Panel(content, title=f"[bold {C['violet']}]🧠 Mémoire · Faits[/]", title_align="left", border_style=C["violet_dim"], box=BOX, padding=(1, 2)))
 
     def _show_memory_actions(self, memory):
         actions = memory.get_recent_actions(limit=15)
         if not actions:
-            self.console.print(Panel("[dim]Aucune action enregistrée.[/]", title="[bold]🧠 Mémoire · Actions[/]", border_style="bright_blue"))
+            self.console.print(Panel(f"[{C['text_dim']}]Aucune action enregistrée.[/]", title=f"[bold {C['violet']}]🧠 Mémoire · Actions[/]", title_align="left", border_style=C["violet_dim"], box=BOX))
             return
 
-        table = Table(show_header=True, header_style="bold", border_style="dim", padding=(0, 1))
-        table.add_column("Heure", style="dim", width=16)
-        table.add_column("Action", style="cyan", width=25)
-        table.add_column("Détails", ratio=1)
+        table = Table(show_header=True, header_style=f"bold {C['violet_bright']}", border_style=C["border"], padding=(0, 1))
+        table.add_column("Heure", style=C["text_dim"], width=16)
+        table.add_column("Action", style=C["cyan"], width=25)
+        table.add_column("Détails", ratio=1, style=C["text"])
 
         for a in actions:
             ts = a["executed_at"][:16].replace("T", " ")
             desc = a["description"][:60] + "…" if len(a["description"]) > 60 else a["description"]
             table.add_row(ts, a["action_type"], desc)
 
-        self.console.print(Panel(table, title="[bold]🧠 Mémoire · Actions récentes[/]", border_style="bright_blue", padding=(1, 1)))
+        self.console.print(Panel(table, title=f"[bold {C['violet']}]🧠 Mémoire · Actions récentes[/]", title_align="left", border_style=C["violet_dim"], box=BOX, padding=(1, 1)))
 
     def _show_memory_full(self, memory):
         """Show a combined overview: facts + actions + summaries."""
@@ -252,41 +265,41 @@ class ChatInterface:
         content = Text()
 
         # ── Facts ──
-        content.append(" FAITS MÉMORISÉS", style="bold underline cyan")
+        content.append(" FAITS MÉMORISÉS", style=f"bold {C['violet_bright']}")
         if facts:
             categories: dict[str, list] = {}
             for f in facts:
                 categories.setdefault(f["category"], []).append(f)
             for cat, items in sorted(categories.items()):
                 emoji = {"preference": "⚙️", "context": "📌", "person": "👤", "project": "📁"}.get(cat, "📝")
-                content.append(f"\n  {emoji} {cat.upper()}\n", style="bold")
+                content.append(f"\n  {emoji} {cat.upper()}\n", style=f"bold {C['cyan']}")
                 for item in items:
-                    content.append(f"    {item['key']}", style="bold white")
-                    content.append(f" → {item['value']}\n", style="white")
+                    content.append(f"    {item['key']}", style=f"bold {C['text']}")
+                    content.append(f" → {item['value']}\n", style=C["text_dim"])
         else:
-            content.append("\n  [aucun fait]\n", style="dim")
+            content.append(f"\n  [aucun fait]\n", style=C["text_dim"])
 
         # ── Actions ──
-        content.append("\n ACTIONS RÉCENTES", style="bold underline cyan")
+        content.append("\n ACTIONS RÉCENTES", style=f"bold {C['violet_bright']}")
         if actions:
             for a in actions[:10]:
                 ts = a["executed_at"][11:16]
-                content.append(f"\n  {ts} ", style="dim")
-                content.append(f"{a['action_type']}", style="cyan")
+                content.append(f"\n  {ts} ", style=C["text_dim"])
+                content.append(f"{a['action_type']}", style=C["cyan"])
                 desc = a["description"][:50]
                 if desc:
-                    content.append(f" — {desc}", style="white")
+                    content.append(f" — {desc}", style=C["text"])
         else:
-            content.append("\n  [aucune action]", style="dim")
+            content.append(f"\n  [aucune action]", style=C["text_dim"])
 
         # ── Summaries ──
         if summaries:
-            content.append("\n\n RÉSUMÉS DE CONVERSATIONS", style="bold underline cyan")
+            content.append(f"\n\n RÉSUMÉS DE CONVERSATIONS", style=f"bold {C['violet_bright']}")
             for s in summaries:
-                content.append(f"\n  {s['date']} ", style="dim")
-                content.append(f"{s['summary'][:80]}\n", style="white")
+                content.append(f"\n  {s['date']} ", style=C["text_dim"])
+                content.append(f"{s['summary'][:80]}\n", style=C["text"])
 
-        self.console.print(Panel(content, title="[bold]🧠 MÉMOIRE[/]", border_style="bright_blue", padding=(1, 2)))
+        self.console.print(Panel(content, title=f"[bold {C['violet']}]🧠 MÉMOIRE[/]", title_align="left", border_style=C["violet_dim"], box=BOX, padding=(1, 2)))
 
     def _handle_gmail_setup(self):
         """Interactive Gmail setup/reconfigure."""

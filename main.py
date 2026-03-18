@@ -29,6 +29,8 @@ from ui.dashboard import Dashboard
 
 def setup_services(settings: Settings, console: Console):
     """Initialize all services and wire them together."""
+    from ui.themes import C
+
     db_path = settings.get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -63,11 +65,11 @@ def setup_services(settings: Settings, console: Console):
 
             gmail_client = GmailClient(gmail_cfg["email"], gmail_cfg["app_password"])
             reply_generator = ReplyGenerator(gmail_client)
-            console.print(f"[green]✓[/] Gmail connecté ({gmail_cfg.get('email', '?')})")
+            console.print(f"[{C['emerald']}]✓[/] [{C['text_dim']}]Gmail connecté ({gmail_cfg.get('email', '?')})[/]")
         except Exception as e:
-            console.print(f"[yellow]⚠ Gmail: {e}[/]")
+            console.print(f"[{C['amber']}]⚠ Gmail: {e}[/]")
     else:
-        console.print("[dim]○ Gmail non configuré — tape [bold]/gmail_setup[/bold] dans le chat[/]")
+        console.print(f"[{C['text_muted']}]○ Gmail non configuré — tape [bold]/gmail_setup[/bold] dans le chat[/]")
 
     # Telegram interface (optional — config interactive via setup wizard)
     telegram_interface = None
@@ -77,11 +79,11 @@ def setup_services(settings: Settings, console: Console):
         try:
             from integrations.telegram.client import TelegramInterface
             telegram_interface = TelegramInterface(tg_config["bot_token"], tg_config["chat_id"])
-            console.print(f"[green]✓[/] Telegram connecté (@{tg_config.get('bot_username', '?')})")
+            console.print(f"[{C['emerald']}]✓[/] [{C['text_dim']}]Telegram connecté (@{tg_config.get('bot_username', '?')})[/]")
         except Exception as e:
-            console.print(f"[yellow]⚠ Telegram: {e}[/]")
+            console.print(f"[{C['amber']}]⚠ Telegram: {e}[/]")
     else:
-        console.print("[dim]○ Telegram non configuré — tape [bold]/telegram_setup[/bold] dans le chat[/]")
+        console.print(f"[{C['text_muted']}]○ Telegram non configuré — tape [bold]/telegram_setup[/bold] dans le chat[/]")
 
     # Tool Registry — wire all handlers
     registry = ToolRegistry()
@@ -185,9 +187,9 @@ def setup_services(settings: Settings, console: Console):
         registry.register("docker_templates", lambda: docker_client.get_available_templates())
         registry.register("docker_system_info", lambda: docker_client.system_info())
         registry.register("docker_system_prune", lambda all=False: docker_client.system_prune(all))
-        console.print("[green]✓[/] Docker connecté")
+        console.print(f"[{C['emerald']}]✓[/] [{C['text_dim']}]Docker connecté[/]")
     else:
-        console.print("[dim]○ Docker non disponible (daemon non lancé ou non installé)[/]")
+        console.print(f"[{C['text_muted']}]○ Docker non disponible (daemon non lancé ou non installé)[/]")
         _docker_unavailable = lambda **kwargs: "Docker n'est pas disponible. Lance Docker Desktop ou installe Docker."
         for tool_name in [
             "docker_list_containers", "docker_run", "docker_start", "docker_stop",
@@ -215,9 +217,9 @@ def setup_services(settings: Settings, console: Console):
         registry.register("github_notifications", lambda limit=10: github_client.notifications(limit))
         registry.register("github_git_status", lambda path=None: github_client.git_status(path))
         registry.register("github_git_diff", lambda path=None, staged=False: github_client.git_diff(path, staged))
-        console.print("[green]✓[/] GitHub connecté (gh CLI)")
+        console.print(f"[{C['emerald']}]✓[/] [{C['text_dim']}]GitHub connecté (gh CLI)[/]")
     else:
-        console.print("[dim]○ GitHub CLI non disponible — installe avec: brew install gh && gh auth login[/]")
+        console.print(f"[{C['text_muted']}]○ GitHub CLI non disponible — installe avec: brew install gh && gh auth login[/]")
         _gh_unavailable = lambda **kwargs: "GitHub CLI (gh) non disponible. Installe avec: brew install gh && gh auth login"
         for tool_name in [
             "github_list_repos", "github_repo_info", "github_list_issues",
@@ -239,7 +241,7 @@ def setup_services(settings: Settings, console: Console):
     registry.register("music_playlists", lambda: music_client.list_playlists())
     registry.register("music_play_playlist", lambda name: music_client.play_playlist(name))
     registry.register("music_shuffle", lambda enabled: music_client.set_shuffle(enabled))
-    console.print("[green]✓[/] Apple Music prêt")
+    console.print(f"[{C['emerald']}]✓[/] [{C['text_dim']}]Apple Music prêt[/]")
 
     # Automation tools
     automation.start()
@@ -248,7 +250,7 @@ def setup_services(settings: Settings, console: Console):
     registry.register("automation_list_jobs", lambda: automation.list_jobs())
     registry.register("automation_add_reminder", lambda message, remind_at: automation.add_reminder(message, remind_at))
     registry.register("automation_morning_briefing", lambda time="08:00": automation.setup_morning_briefing(time))
-    console.print("[green]✓[/] Automatisation démarrée")
+    console.print(f"[{C['emerald']}]✓[/] [{C['text_dim']}]Automatisation démarrée[/]")
 
     return {
         "token_tracker": token_tracker,
@@ -368,22 +370,24 @@ def main():
         console.print("[dim]Créez un fichier .env à partir de .env.example[/]")
         return
 
+    from ui.themes import C, BORDERS, BOX
+
     # Show splash
     dashboard = Dashboard(console)
     dashboard.show_splash()
 
     # Model selection
     console.print()
-    console.print("  [bold cyan]Choisis ton modèle Claude :[/]")
-    console.print("    [bold]1[/]  claude-sonnet-4-6  [dim](dernier, août 2025)[/]")
-    console.print("    [bold]2[/]  claude-sonnet-4-5  [dim](stable, juin 2025)[/]")
-    choice = Prompt.ask("\n  [bold]Modèle[/]", choices=["1", "2"], default="1")
+    console.print(f"  [bold {C['violet_bright']}]Choisis ton modèle Claude :[/]")
+    console.print(f"    [bold {C['text']}]1[/]  claude-sonnet-4-6  [{C['text_dim']}](dernier, août 2025)[/]")
+    console.print(f"    [bold {C['text']}]2[/]  claude-sonnet-4-5  [{C['text_dim']}](stable, juin 2025)[/]")
+    choice = Prompt.ask(f"\n  [bold {C['violet_bright']}]Modèle[/]", choices=["1", "2"], default="1")
     model_map = {"1": "claude-sonnet-4-6", "2": "claude-sonnet-4-5"}
     settings.claude_model = model_map[choice]
-    console.print(f"  [green]✓[/] Modèle : [bold]{settings.claude_model}[/]\n")
+    console.print(f"  [{C['emerald']}]✓[/] Modèle : [bold {C['text']}]{settings.claude_model}[/]\n")
 
     # Init services
-    console.print("[bold]Initialisation des services...[/]\n")
+    console.print(f"[bold {C['violet']}]Initialisation des services...[/]\n")
     services = setup_services(settings, console)
     console.print()
 
@@ -409,7 +413,7 @@ def main():
     if tg_interface:
         tg_interface.set_conversation(conversation)
         tg_interface.start()
-        console.print("[green]✓[/] Interface Telegram démarrée (polling en arrière-plan)")
+        console.print(f"[{C['emerald']}]✓[/] [{C['text_dim']}]Interface Telegram démarrée (polling en arrière-plan)[/]")
 
     # Start chat loop
     chat = ChatInterface(

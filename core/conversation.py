@@ -2,11 +2,14 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.prompt import Confirm
+from rich.live import Live
+from rich.text import Text
 
 from config.prompts import get_system_prompt
 from core.claude_client import ClaudeClient
 from core.memory import Memory
 from core.tool_registry import ToolRegistry
+from ui.themes import C, BORDERS, BOX
 
 # Maximum chars for a single tool result kept in history
 TOOL_RESULT_MAX_CHARS = 1500
@@ -77,8 +80,14 @@ class ConversationManager:
         # Smart tool routing: only send relevant tools based on user message
         tools = self.tools.get_tools_for_message(user_message)
 
-        spinner = self.console.status("[bold yellow]Réflexion...[/]")
-        spinner.start()
+        tools_used: list[str] = []
+        thinking_live = Live(
+            self._render_thinking("Réflexion en cours", tools_used),
+            console=self.console,
+            refresh_per_second=4,
+            transient=True,  # Disappears when stopped
+        )
+        thinking_live.start()
 
         try:
             if tools:
@@ -96,11 +105,19 @@ class ConversationManager:
 
             # Tool use loop
             while response.stop_reason == "tool_use":
-                spinner.stop()
+                # Collect tool names being used
+                for block in response.content:
+                    if block.type == "tool_use":
+                        tools_used.append(block.name)
+                thinking_live.update(self._render_thinking("Utilisation d'outils", tools_used))
+
+                thinking_live.stop()
                 tool_results = self._execute_tools(response)
                 self.history.append({"role": "assistant", "content": response.content})
                 self.history.append({"role": "user", "content": tool_results})
-                spinner.start()
+                thinking_live.start()
+                thinking_live.update(self._render_thinking("Analyse des résultats", tools_used))
+
                 # In tool loop, keep using full tool set to allow follow-up calls
                 response = self.client.chat_with_tools(
                     messages=self._get_messages_for_api(),
@@ -108,7 +125,7 @@ class ConversationManager:
                     system=system,
                 )
         finally:
-            spinner.stop()
+            thinking_live.stop()
 
         # Extract text response
         text = ""
@@ -182,23 +199,47 @@ class ConversationManager:
 
     def _ask_confirmation(self, tool_name: str, inputs: dict) -> bool:
         details = Table.grid(padding=(0, 2))
-        details.add_column(style="bold")
+        details.add_column(style=f"bold {C['text_dim']}")
         details.add_column()
 
-        details.add_row("Action", tool_name)
+        details.add_row("Action", f"[{C['amber']}]{tool_name}[/]")
         for key, value in inputs.items():
             display_value = str(value)
             if key != "body" and len(display_value) > 100:
                 display_value = display_value[:100] + "..."
-            details.add_row(key, display_value)
+            details.add_row(key, f"[{C['text']}]{display_value}[/]")
 
         self.console.print(Panel(
             details,
-            title="[bold yellow]⚠️  CONFIRMATION REQUISE[/]",
-            border_style="yellow",
+            title=f"[bold {C['amber']}]⚠️  CONFIRMATION REQUISE[/]",
+            border_style=BORDERS["confirm"],
+            box=BOX,
+            padding=(1, 2),
         ))
 
-        return Confirm.ask("[bold]Confirmer cette action ?[/]", console=self.console)
+        return Confirm.ask(f"[bold {C['text']}]Confirmer cette action ?[/]", console=self.console)
+
+    @staticmethod
+    def _render_thinking(message: str, tools_used: list[str] | None = None) -> Panel:
+        """Render the ephemeral thinking/reflection panel."""
+        content = Text()
+        content.append(f"  {message}", style=f"italic {C['pink']}")
+        content.append(" ···", style=f"bold {C['pink_dim']}")
+
+        if tools_used:
+            content.append("\n")
+            for tool in tools_used:
+                content.append(f"\n  ⚡ ", style=C["amber"])
+                content.append(tool, style=C["text_dim"])
+
+        return Panel(
+            content,
+            title=f"[{C['pink']}]💭 RÉFLEXION[/]",
+            title_align="left",
+            border_style=BORDERS["thinking"],
+            box=BOX,
+            padding=(0, 1),
+        )
 
     def _build_system_prompt(self) -> str:
         facts = self._get_cached_facts()
@@ -280,3 +321,4 @@ class ConversationManager:
     def clear_history(self):
         self.history.clear()
         self._summary_prefix = ""
+        self.tools._active_groups.clear()

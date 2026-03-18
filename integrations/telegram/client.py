@@ -4,7 +4,9 @@ import asyncio
 import logging
 from datetime import datetime
 
+import httpx
 from telegram import Bot, Update
+from telegram.error import Conflict
 from telegram.ext import (
     Application,
     MessageHandler,
@@ -13,6 +15,28 @@ from telegram.ext import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _ConflictFilter(logging.Filter):
+    """Drop all log records that mention Telegram Conflict errors."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = str(getattr(record, "msg", ""))
+        if "Conflict" in msg or "terminated by other getUpdates" in msg:
+            return False
+        if record.exc_info and record.exc_info[1]:
+            if "Conflict" in str(record.exc_info[1]):
+                return False
+        return True
+
+
+# Silence Conflict spam from python-telegram-bot's polling loop.
+# The lib's get_logger() maps _utils modules to parent name "telegram.ext".
+_conflict_filter = _ConflictFilter()
+for _name in ("telegram.ext", "telegram", "telegram.ext.Updater"):
+    _lg = logging.getLogger(_name)
+    _lg.addFilter(_conflict_filter)
+# Also install on root logger handlers so it's caught regardless of config.
+logging.getLogger().addFilter(_conflict_filter)
 
 
 class TelegramInterface:
@@ -82,7 +106,20 @@ class TelegramInterface:
         thread.start()
 
     async def _run_polling(self) -> None:
-        """Build the Application and start polling."""
+        """Build the Application and start polling, retrying on Conflict errors."""
+        # Force-kill any stale polling session via raw HTTP call.
+        # This is more reliable than using the Bot class which may itself conflict.
+        api_url = f"https://api.telegram.org/bot{self.token}"
+        async with httpx.AsyncClient() as http:
+            try:
+                await http.post(f"{api_url}/deleteWebhook", json={"drop_pending_updates": True})
+                await http.post(f"{api_url}/getUpdates", json={"offset": -1, "timeout": 1}, timeout=10)
+            except Exception:
+                pass
+
+        # Wait for Telegram servers to release the old long-poll connection
+        await asyncio.sleep(3)
+
         self._app = (
             Application.builder()
             .token(self.token)
@@ -93,7 +130,10 @@ class TelegramInterface:
 
         await self._app.initialize()
         await self._app.start()
-        await self._app.updater.start_polling(drop_pending_updates=True)
+        await self._app.updater.start_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+        )
 
         # Keep running forever (daemon thread will be killed on exit)
         stop_event = asyncio.Event()

@@ -1046,7 +1046,7 @@ TOOL_GROUPS = {
             "docker_templates", "docker_system_info", "docker_system_prune",
         },
         "keywords": re.compile(
-            r"docker|container|image.*docker|volume.*docker|compose|minecraft.*serv|serveur.*minecraft"
+            r"docker|container|image.*docker|volume.*docker|compose|minecraft|serveur"
             r"|postgres.*docker|redis.*docker|nginx.*docker|portainer|kubectl",
             re.IGNORECASE,
         ),
@@ -1112,6 +1112,7 @@ class ToolRegistry:
 
     def __init__(self):
         self.handlers: dict[str, Callable] = {}
+        self._active_groups: set[str] = set()  # groups active in recent conversation
 
     def register(self, name: str, handler: Callable):
         self.handlers[name] = handler
@@ -1140,22 +1141,33 @@ class ToolRegistry:
 
     def get_tools_for_message(self, message: str) -> list[dict]:
         """Return only the tool definitions relevant to the user's message."""
-        needed: set[str] = set()
-        for group in TOOL_GROUPS.values():
-            if group["keywords"].search(message):
-                needed |= group["tools"]
-
-        if needed:
-            return [t for t in TOOL_DEFINITIONS if t["name"] in needed]
-
-        # No keyword matched — check if it looks like pure conversation
+        # Check casual greetings first — these always reset context
         casual = re.compile(
             r"^(salut|hello|hi|hey|bonjour|bonsoir|coucou|ça va|comment vas|merci|ok|oui|non|"
             r"d'accord|super|cool|bye|au revoir|bonne nuit|quoi de neuf|yo)\b",
             re.IGNORECASE,
         )
         if casual.match(message.strip()) and len(message.strip()) < 60:
+            self._active_groups.clear()
             return []
+
+        needed: set[str] = set()
+        matched_groups: set[str] = set()
+        for group_name, group in TOOL_GROUPS.items():
+            if group["keywords"].search(message):
+                needed |= group["tools"]
+                matched_groups.add(group_name)
+
+        if matched_groups:
+            self._active_groups = matched_groups
+            return [t for t in TOOL_DEFINITIONS if t["name"] in needed]
+
+        # No keyword matched — carry over tools from recent conversation context
+        if self._active_groups:
+            for group_name in self._active_groups:
+                needed |= TOOL_GROUPS[group_name]["tools"]
+            if needed:
+                return [t for t in TOOL_DEFINITIONS if t["name"] in needed]
 
         # Ambiguous message — send lightweight fallback set instead of all 35 tools
         return [t for t in TOOL_DEFINITIONS if t["name"] in FALLBACK_TOOLS]
